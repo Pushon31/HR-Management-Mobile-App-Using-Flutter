@@ -26,6 +26,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
   // Form state
   bool _isLoading = false;
   bool _isActive = true;
+  bool _autoCreateEmployee = true; // ✅ NEW: Auto-create employee option
   List<String> _selectedRoles = ['ROLE_EMPLOYEE'];
 
   // Available roles
@@ -35,6 +36,14 @@ class _AddUserScreenState extends State<AddUserScreen> {
     'ROLE_HR',
     'ROLE_ACCOUNTANT',
     'ROLE_EMPLOYEE',
+  ];
+
+  // Employee roles
+  final List<String> _employeeRoles = [
+    'ROLE_EMPLOYEE',
+    'ROLE_MANAGER',
+    'ROLE_HR',
+    'ROLE_ACCOUNTANT',
   ];
 
   // Error message
@@ -69,6 +78,19 @@ class _AddUserScreenState extends State<AddUserScreen> {
     return true;
   }
 
+  // ✅ NEW: Check if user has employee roles
+  bool get _hasEmployeeRole {
+    return _selectedRoles.any((role) => _employeeRoles.contains(role));
+  }
+
+  // ✅ NEW: Get designation based on roles
+  String get _designationFromRoles {
+    if (_selectedRoles.contains('ROLE_MANAGER')) return 'Manager';
+    if (_selectedRoles.contains('ROLE_HR')) return 'HR Manager';
+    if (_selectedRoles.contains('ROLE_ACCOUNTANT')) return 'Accountant';
+    return 'Employee';
+  }
+
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -100,14 +122,113 @@ class _AddUserScreenState extends State<AddUserScreen> {
         'isActive': _isActive,
       };
 
-      final newUser = await _userService.createUser(userData);
+      User newUser;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('User created successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // ✅ Check if user has employee role and auto-create option is enabled
+      if (_hasEmployeeRole && _autoCreateEmployee) {
+        // Show confirmation dialog
+        final shouldProceed =
+            await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: Text('Create Employee Profile'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('This user will have:'),
+                    SizedBox(height: 8),
+                    Text(
+                      '• Role: ${_selectedRoles.map((r) => r.replaceAll('ROLE_', '')).join(', ')}',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      '• Designation: $_designationFromRoles',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Do you want to automatically create an employee profile?',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text('Skip'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text('Create Employee'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+
+        if (shouldProceed) {
+          // Create user with employee
+          newUser = await _userService.createUserWithEmployee(
+            userData,
+            context: context,
+          );
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '✅ User created successfully! Employee profile created with designation: $_designationFromRoles',
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        } else {
+          // Create user only
+          newUser = await _userService.createUser(
+            userData,
+            context: context,
+            autoCreateEmployee: false,
+          );
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'User created! Remember to create employee profile later.',
+              ),
+              backgroundColor: Colors.blue,
+            ),
+          );
+        }
+      } else if (_hasEmployeeRole && !_autoCreateEmployee) {
+        // User has employee role but auto-create is disabled
+        newUser = await _userService.createUser(
+          userData,
+          context: context,
+          autoCreateEmployee: false,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('User created! Employee profile was not created.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        // User doesn't have employee role
+        newUser = await _userService.createUser(
+          userData,
+          context: context,
+          autoCreateEmployee: false,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('User created successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
 
       // Navigate back with result
       Navigator.pop(context, newUser);
@@ -368,7 +489,99 @@ class _AddUserScreenState extends State<AddUserScreen> {
                         );
                       }).toList(),
                     ),
-                    SizedBox(height: 24),
+                    SizedBox(height: 20),
+
+                    // ✅ NEW: Auto-create Employee Option
+                    if (_hasEmployeeRole)
+                      Card(
+                        color: Colors.orange[50],
+                        child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.badge, color: Colors.orange),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Employee Profile',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.orange[800],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'This user has employee-related roles. You can automatically create an employee profile.',
+                                style: TextStyle(color: Colors.orange[700]),
+                              ),
+                              SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Icon(
+                                    _autoCreateEmployee
+                                        ? Icons.check_circle
+                                        : Icons.radio_button_unchecked,
+                                    color: _autoCreateEmployee
+                                        ? Colors.green
+                                        : Colors.grey,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Auto-create Employee Profile',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Designation: $_designationFromRoles',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: _autoCreateEmployee,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _autoCreateEmployee = value;
+                                      });
+                                    },
+                                    activeColor: Colors.green,
+                                  ),
+                                ],
+                              ),
+                              if (_autoCreateEmployee)
+                                Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    '✓ Employee ID will be auto-generated\n'
+                                    '✓ Status will be set to ACTIVE\n'
+                                    '✓ Work Type: ONSITE\n'
+                                    '✓ Employee Type: FULL_TIME',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green[700],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    SizedBox(height: 16),
 
                     // Status Toggle
                     Row(
@@ -433,7 +646,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
                             Icon(Icons.person_add, color: Colors.white),
                             SizedBox(width: 8),
                             Text(
-                              'Create User',
+                              _hasEmployeeRole && _autoCreateEmployee
+                                  ? 'Create User with Employee'
+                                  : 'Create User',
                               style: TextStyle(
                                 fontSize: 16,
                                 color: Colors.white,
@@ -457,14 +672,69 @@ class _AddUserScreenState extends State<AddUserScreen> {
                             Icon(Icons.info_outline, color: Colors.blue),
                             SizedBox(width: 12),
                             Expanded(
-                              child: Text(
-                                'Note: User will receive login credentials via email. '
-                                'Make sure to inform the user about their credentials.',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.blue[800],
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'User Creation Note',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.blue[800],
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'User will receive login credentials. '
+                                    'Employee profiles can be created later if skipped.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.blue[700],
+                                    ),
+                                  ),
+                                ],
                               ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // ✅ NEW: Quick Tips
+                    SizedBox(height: 16),
+                    Card(
+                      color: Colors.grey[50],
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Quick Tips:',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            _buildTipItem(
+                              'Admin Role',
+                              'Can access all system features',
+                              Colors.red,
+                            ),
+                            _buildTipItem(
+                              'Manager Role',
+                              'Can manage employees and view reports',
+                              Colors.blue,
+                            ),
+                            _buildTipItem(
+                              'Employee Role',
+                              'Basic system access, requires employee profile',
+                              Colors.orange,
+                            ),
+                            _buildTipItem(
+                              'HR & Accountant',
+                              'Specialized roles with specific permissions',
+                              Colors.purple,
                             ),
                           ],
                         ),
@@ -474,6 +744,38 @@ class _AddUserScreenState extends State<AddUserScreen> {
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildTipItem(String title, String description, Color color) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            margin: EdgeInsets.only(top: 6, right: 8),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+                Text(
+                  description,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
